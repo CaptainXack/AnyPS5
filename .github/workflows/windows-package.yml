@@ -41,6 +41,8 @@ jobs:
           curl -fsSL --retry 3 -o "$RUNNER_TEMP/winlibs.zip" "https://github.com/brechtsanders/winlibs_mingw/releases/download/$WINLIBS_RELEASE/$WINLIBS_ZIP"
           echo "$WINLIBS_SHA256  $RUNNER_TEMP/winlibs.zip" | sha256sum -c -
           7z x "$RUNNER_TEMP/winlibs.zip" -oC:/winlibs > /dev/null
+      - name: Add WinLibs runtime DLLs to PATH
+        run: echo 'C:\winlibs\mingw64\bin' >> "$GITHUB_PATH"
       - name: Configure relinker and tests
         shell: cmd
         run: cmake -S . -B build-relinker -G Ninja -DCMAKE_BUILD_TYPE=Release -DANYPS5_RELINKER_ONLY=ON -DBUILD_TESTING=ON -DCMAKE_C_COMPILER=C:/winlibs/mingw64/bin/gcc.exe -DCMAKE_CXX_COMPILER=C:/winlibs/mingw64/bin/g++.exe
