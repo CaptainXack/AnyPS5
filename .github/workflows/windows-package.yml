@@ -43,15 +43,19 @@ jobs:
           7z x "$RUNNER_TEMP/winlibs.zip" -oC:/winlibs > /dev/null
       - name: Add WinLibs runtime DLLs to PATH
         run: echo 'C:\winlibs\mingw64\bin' >> "$GITHUB_PATH"
+      - uses: hendrikmuhs/ccache-action@v1.2.24
+        with:
+          key: anyps5-windows-relinker
+          save: true
       - name: Configure relinker and tests
         shell: cmd
-        run: cmake -S . -B build-relinker -G Ninja -DCMAKE_BUILD_TYPE=Release -DANYPS5_RELINKER_ONLY=ON -DBUILD_TESTING=ON -DCMAKE_C_COMPILER=C:/winlibs/mingw64/bin/gcc.exe -DCMAKE_CXX_COMPILER=C:/winlibs/mingw64/bin/g++.exe
+        run: cmake -S . -B build-relinker -G Ninja -DCMAKE_BUILD_TYPE=Release -DANYPS5_RELINKER_ONLY=ON -DBUILD_TESTING=ON -DCMAKE_C_COMPILER=C:/winlibs/mingw64/bin/gcc.exe -DCMAKE_CXX_COMPILER=C:/winlibs/mingw64/bin/g++.exe -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
       - name: Build relinker
         shell: cmd
-        run: cmake --build build-relinker
+        run: cmake --build build-relinker --parallel 3
       - name: Run relinker tests
         shell: cmd
-        run: ctest --test-dir build-relinker --output-on-failure --timeout 120 --no-tests=error
+        run: ctest --test-dir build-relinker --output-on-failure --timeout 120 --parallel 3 --no-tests=error
       - name: End-to-end ELF to Windows executable smoke test
         shell: pwsh
         run: |
