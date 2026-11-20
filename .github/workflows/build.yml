@@ -889,11 +889,52 @@ jobs:
         if: github.event_name != 'pull_request'
         shell: cmd
         run: cmake --build build --target libs
-      - if: github.event_name != 'pull_request'
+      - name: Run Windows CTest with machine-readable results
+        if: github.event_name != 'pull_request'
         shell: cmd
         run: python tools/select_tests.py ctest build --output-on-failure --timeout 120 --parallel 4 --output-log ctest.log --output-junit ctest.xml
-      - if: github.event_name != 'pull_request'
+      - name: Check Windows test skips
+        if: github.event_name != 'pull_request'
         run: python tools/check_skips.py build/ctest.xml --job windows
+      - name: Publish Windows test summary
+        if: ${{ always() && github.event_name != 'pull_request' }}
+        shell: bash
+        run: |
+          {
+            echo '### Windows validation diagnostics'
+            echo
+            echo "Run: \`$GITHUB_RUN_ID\` (attempt \`$GITHUB_RUN_ATTEMPT\`)"
+            echo
+            if [ -f build/ctest.xml ]; then
+              echo 'CTest XML generated; download the diagnostics artifact to inspect individual results.'
+            elif [ -f ctest.xml ]; then
+              echo 'CTest XML generated; download the diagnostics artifact to inspect individual results.'
+            else
+              echo 'No CTest XML was generated. The job may have stopped before or during testing.'
+            fi
+            if [ -f ctest.log ]; then
+              echo
+              echo '#### Final test log lines'
+              echo '\`\`\`text'
+              tail -n 35 ctest.log
+              echo '\`\`\`'
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+      - name: Upload Windows diagnostic logs
+        if: ${{ always() && github.event_name != 'pull_request' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-diagnostics-${{ github.run_id }}-${{ github.run_attempt }}
+          if-no-files-found: warn
+          retention-days: 14
+          path: |
+            ctest.log
+            ctest.xml
+            build/ctest.xml
+            build/Testing/Temporary/
+            build/CMakeFiles/CMakeConfigureLog.yaml
+            build/CMakeFiles/CMakeError.log
+            build/CMakeFiles/CMakeOutput.log
       - name: Write the test graph of main
         if: ${{ !cancelled() && github.event_name == 'push' && steps.build.outcome == 'success' && steps.libs.outcome == 'success' }}
         continue-on-error: true
