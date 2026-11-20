@@ -879,8 +879,9 @@ jobs:
         run: git diff --name-only "$BASE" HEAD > changed.txt
       - name: Link changed host-only core/libs test executables
         if: github.event_name == 'pull_request'
+        timeout-minutes: 60
         shell: cmd
-        run: python tools/build_mingw_host_only_tests.py build changed.txt
+        run: python -u tools/build_mingw_host_only_tests.py build changed.txt
       - name: Build and run changed core/libs tests
         if: github.event_name == 'pull_request'
         shell: cmd
