@@ -299,8 +299,6 @@ static void CheckWaitingWriterHoldsBackNewReaders() {
     Require(pthread_rwlock_destroy_nid_postfix(&recursive) == 0);
 }
 
-// A read lock on A must not count as a recursive read lock on B when a
-// writer is waiting on B. This guards against thread-global recursion counts.
 static void CheckUnrelatedReadDoesNotBypassWaitingWriter() {
     PthreadRwlock a = nullptr;
     PthreadRwlock b = nullptr;
