@@ -869,8 +869,6 @@ jobs:
         env:
           BASE: ${{ needs.eligibility.outputs.sha }}
         run: git diff --name-only "$BASE" HEAD > changed.txt
-      # The combined test runner selects both host-only and guest core/libs targets.
-      # Building host-only targets separately first duplicates dependency traversal and linking.
       - name: Build and run changed core/libs tests
         if: github.event_name == 'pull_request'
         timeout-minutes: 90
