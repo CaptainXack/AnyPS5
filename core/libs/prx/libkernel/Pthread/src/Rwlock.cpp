@@ -9,6 +9,7 @@
 #include <cstdint>
 #include <stdexcept>
 #include <string>
+#include <unordered_map>
 
 static constexpr int SCE_OK = 0;
 static constexpr int SCE_KERNEL_ERROR_EPERM = 0x80020001;
@@ -45,10 +46,10 @@ static bool OwnsWrite(const PthreadRwlockPrivate* lock) {
     return lock->_writer.load(std::memory_order_acquire) == std::this_thread::get_id();
 }
 
-static thread_local int readLocksHeld = 0;
+static thread_local std::unordered_map<const PthreadRwlockPrivate*, unsigned> readLocksHeld;
 
 static bool ReaderMayEnter(const PthreadRwlockPrivate* lock) {
-    return lock->_writer.load(std::memory_order_acquire) == std::thread::id{} && (lock->_waitingWriters == 0 || readLocksHeld != 0);
+    return lock->_writer.load(std::memory_order_acquire) == std::thread::id{} && (lock->_waitingWriters == 0 || readLocksHeld.contains(lock));
 }
 
 static bool WriterMayEnter(const PthreadRwlockPrivate* lock) {
@@ -57,7 +58,7 @@ static bool WriterMayEnter(const PthreadRwlockPrivate* lock) {
 
 static int EnterRead(PthreadRwlockPrivate* lock) {
     lock->_readers.fetch_add(1, std::memory_order_release);
-    ++readLocksHeld;
+    ++readLocksHeld[lock];
     return SCE_OK;
 }
 
@@ -174,7 +175,9 @@ int APS5_VABI scePthreadRwlockUnlock(PthreadRwlock* rwlock) {
     } else {
         if (lock->_writer.load(std::memory_order_acquire) != std::thread::id{}) return SCE_KERNEL_ERROR_EPERM;
         if (lock->_readers.load(std::memory_order_acquire) == 0) return SCE_KERNEL_ERROR_EPERM;
-        if (readLocksHeld != 0) --readLocksHeld;
+        auto owned = readLocksHeld.find(lock);
+        if (owned == readLocksHeld.end()) return SCE_KERNEL_ERROR_EPERM;
+        if (--owned->second == 0) readLocksHeld.erase(owned);
         if (lock->_readers.fetch_sub(1, std::memory_order_acq_rel) != 1) return SCE_OK;
     }
     lock->_changed.NotifyAll();

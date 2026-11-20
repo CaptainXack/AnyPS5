@@ -10,7 +10,7 @@ import tempfile
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import build_mingw_host_only_tests as host_only
 from check_test_registration import testfile_commands
-from select_tests import chunks
+from select_tests import Build, chunks, escape
 
 BROAD_CHANGES = {
     "CMakeLists.txt",
@@ -188,28 +188,48 @@ def run_ctest(build_dir, indices, output_log):
                         *(["--output-log", str(output_log)] if output_log else [])], check=True)
 
 
+def build_targets(build_dir, targets):
+    ordered = list(dict.fromkeys(targets))
+    if not ordered:
+        return
+    if (Path(build_dir) / "build.ninja").is_file():
+        build = Build(build_dir)
+        with tempfile.TemporaryDirectory(prefix="anyps5-guest-build-", dir=build.path) as directory:
+            manifest = Path(directory) / "selected.ninja"
+            manifest.write_text("include build.ninja\nbuild anyps5_changed_guest_selection: phony "
+                                + " ".join(escape(target) for target in ordered) + "\n", encoding=build.encoding)
+            print(f"Building {len(ordered)} targets in one Ninja invocation", flush=True)
+            subprocess.run([build.program, "-C", build.path, "-f", str(manifest.resolve()),
+                            "-j", "3", "anyps5_changed_guest_selection"], check=True)
+        return
+    groups = (["libs"], [target for target in ordered if target != "libs"]) if "libs" in ordered else (ordered,)
+    for group in groups:
+        for batch in chunks(group):
+            subprocess.run(["cmake", "--build", str(build_dir), "--parallel", "3", "--target", *batch], check=True)
+
+
 def run(build_dir, selected, targets_by_name, output_log=None, script_tests=None):
-    subprocess.run(["cmake", "--build", str(build_dir), "--parallel", "3", "--target", "libs"], check=True)
+    selected_names = set(selected)
+    initial_targets = ["libs", *sorted(selected_names, key=str.casefold)]
+    print(f"Building {len(initial_targets)} initial targets", flush=True)
+    build_targets(build_dir, initial_targets)
+
     scripts = script_test_indices(build_dir, script_tests) if script_tests else []
     script_owners = script_test_owners(build_dir, targets_by_name, script_tests) if script_tests else []
-    if selected:
-        for batch in chunks(selected):
-            subprocess.run(["cmake", "--build", str(build_dir), "--parallel", "3", "--target", *batch], check=True)
-        selected_names = set(selected)
-        resolutions = ctest_resolutions(build_dir, targets_by_name, selected_names)
-        additional = sorted(({owner for owner, _ in resolutions.values()} | set(script_owners)) - selected_names, key=str.casefold)
-        for batch in chunks(additional):
-            subprocess.run(["cmake", "--build", str(build_dir), "--parallel", "3", "--target", *batch], check=True)
-        missing = sorted(selected_names - {owner for owner, _ in resolutions.values()})
-        if missing:
-            raise ValueError("no ctest registration resolved for: " + ", ".join(missing))
-        run_ctest(build_dir, sorted({index for _, index in resolutions.values()} | set(scripts)), output_log)
-    elif scripts:
-        for batch in chunks(script_owners):
-            subprocess.run(["cmake", "--build", str(build_dir), "--parallel", "3", "--target", *batch], check=True)
-        run_ctest(build_dir, scripts, output_log)
+    resolutions = ctest_resolutions(build_dir, targets_by_name, selected_names) if selected else {}
+    additional = sorted(({owner for owner, _ in resolutions.values()} | set(script_owners)) - selected_names, key=str.casefold)
+    if additional:
+        print(f"Building {len(additional)} additional test owners", flush=True)
+        build_targets(build_dir, additional)
+
+    missing = sorted(selected_names - {owner for owner, _ in resolutions.values()})
+    if missing:
+        raise ValueError("no ctest registration resolved for: " + ", ".join(missing))
+    indices = sorted({index for _, index in resolutions.values()} | set(scripts))
+    if indices:
+        run_ctest(build_dir, indices, output_log)
     else:
-        print("No core/libs test sources changed; the libs build still ran")
+        print("No changed core/libs tests require a run; the libs build still ran", flush=True)
 
 
 def main(argv=None):

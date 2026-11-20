@@ -174,6 +174,45 @@ class OwnerResolution(unittest.TestCase):
         self.assertIsNone(owner)
 
 
+@unittest.skipUnless(shutil.which("ninja"), "Ninja is required for build scheduling tests")
+class NinjaBuildTargets(unittest.TestCase):
+    def test_large_selection_builds_shared_work_once_and_propagates_failure(self):
+        with tempfile.TemporaryDirectory() as directory:
+            build = Path(directory) / "build with spaces"
+            build.mkdir()
+            (build / "CMakeCache.txt").write_text(
+                f"CMAKE_CACHEFILE_DIR:INTERNAL={build.as_posix()}\n"
+                f"CMAKE_HOME_DIRECTORY:INTERNAL={build.as_posix()}\n"
+                f"CMAKE_MAKE_PROGRAM:FILEPATH={Path(shutil.which('ninja')).as_posix()}\n", encoding="utf-8")
+            script = build / "work.py"
+            script.write_text("from pathlib import Path\nPath('runs').open('a').write('run\\n')\n", encoding="utf-8")
+            selected = ["guest_" + "long_name_" * 8 + str(index) for index in range(600)]
+            selected += ["target with spaces", "target$with$dollars", "target:with:colons"]
+            escape = build_changed_guest_tests.escape
+            (build / "build.ninja").write_text(
+                f'rule work\n  command = "{escape(Path(sys.executable).as_posix())}" work.py\n'
+                "build force: phony\nbuild shared: work force\nbuild libs: phony shared\n"
+                + "".join(f"build {escape(name)}: phony shared\n" for name in selected), encoding="utf-8")
+            actual_run = subprocess.run
+            manifests = []
+            def execute(cmd, **kwargs):
+                if "-f" in cmd:
+                    self.assertLess(len(subprocess.list2cmdline(cmd).encode("utf-16-le")) // 2, 32767)
+                    manifests.append(Path(cmd[cmd.index("-f") + 1]).read_text())
+                return actual_run(cmd, **kwargs)
+            with mock.patch.object(build_changed_guest_tests.subprocess, "run", side_effect=execute):
+                build_changed_guest_tests.build_targets(build, ["libs", *selected, selected[0]])
+            self.assertEqual((build / "runs").read_text().splitlines(), ["run"])
+            self.assertEqual(len(manifests), 1)
+            for name in selected:
+                self.assertIn(escape(name), manifests[0])
+            self.assertEqual(list(build.glob("anyps5-guest-build-*")), [])
+            script.write_text("raise SystemExit(7)\n", encoding="utf-8")
+            with self.assertRaises(subprocess.CalledProcessError):
+                build_changed_guest_tests.build_targets(build, ["libs", *selected])
+            self.assertEqual(list(build.glob("anyps5-guest-build-*")), [])
+
+
 class Main(unittest.TestCase):
     def target(self, name, target_type="EXECUTABLE", source="core/libs/tests/Guest.cpp", fragment=""):
         return {
@@ -477,7 +516,7 @@ class Main(unittest.TestCase):
         builds = [cmd[cmd.index("--target") + 1:] for cmd in calls if cmd[0] == "cmake"]
         self.assertEqual(builds[0], ["libs"])
         self.assertGreater(len(builds), 2)
-        self.assertEqual([name for batch in builds[1:] for name in batch], selected)
+        self.assertEqual([name for batch in builds[1:] for name in batch], sorted(selected, key=str.casefold))
         self.assertEqual(seen_indices, list(range(2, len(tests) + 1)))
         self.assertEqual(len([cmd for cmd in calls if "-I" in cmd]), 1)
 
