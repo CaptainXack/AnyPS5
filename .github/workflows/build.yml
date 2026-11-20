@@ -412,13 +412,8 @@ jobs:
         os: [ubuntu-latest, macos-15-intel]
         configuration: [Debug, Release]
         architectures: ['']
-        include:
-          - os: macos-15
-            configuration: Debug
-            architectures: x86_64
-          - os: macos-15
-            configuration: Release
-            architectures: x86_64
+        # macos-15 ARM runners can be cancelled before checkout during hosted-runner outages.
+        # Keep PR validation on the Intel runner until ARM capacity is reliable.
         exclude:
           - os: macos-15-intel
             configuration: ${{ github.event_name == 'pull_request' && 'Debug' || 'none' }}
@@ -467,11 +462,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: ${{ github.event_name == 'pull_request' && fromJSON('["macos-15"]') || fromJSON('["macos-15-intel", "macos-15"]') }}
+        os: ${{ github.event_name == 'pull_request' && fromJSON('["macos-15-intel"]') || fromJSON('["macos-15-intel", "macos-15"]') }}
         architectures: ['']
-        include:
-          - os: macos-15
-            architectures: x86_64
     runs-on: ${{ matrix.os }}
     timeout-minutes: ${{ matrix.architectures == 'x86_64' && 15 || 5 }}
     steps:
@@ -961,7 +953,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [macos-15-intel, macos-15]
+        os: ${{ github.event_name == 'pull_request' && fromJSON('["macos-15-intel"]') || fromJSON('["macos-15-intel", "macos-15"]') }}
     runs-on: ${{ matrix.os }}
     timeout-minutes: 5
     steps:
@@ -1005,7 +997,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [macos-15-intel, macos-15]
+        os: ${{ github.event_name == 'pull_request' && fromJSON('["macos-15-intel"]') || fromJSON('["macos-15-intel", "macos-15"]') }}
     runs-on: ${{ matrix.os }}
     timeout-minutes: 5
     steps:
