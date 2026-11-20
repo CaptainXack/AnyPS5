@@ -5,6 +5,7 @@ from pathlib import Path
 import re
 import subprocess
 import sys
+import time
 
 BUILD_WIDE_PREFIXES = ("3rdparty/", "cmake/", ".gitmodules")
 
@@ -245,10 +246,29 @@ def main(argv=None):
         if not selected:
             print("No changed host-only core/libs test executables require a link check")
             return 0
-        print("Host-only core/libs test executables:")
-        print("\n".join(selected))
+        print(f"Host-only test selection: {len(selected)} targets", flush=True)
+        print("\\n".join(selected), flush=True)
         if not args.list_only:
-            subprocess.run(["cmake", "--build", str(args.build_dir), "--parallel", "3", "--target", *selected], check=True)
+            command = ["cmake", "--build", str(args.build_dir), "--parallel", "3", "--target", *selected]
+            started = time.monotonic()
+            print("Starting host-only link check (parallelism=3)", flush=True)
+            process = subprocess.Popen(command)
+            try:
+                while True:
+                    try:
+                        code = process.wait(timeout=60)
+                        break
+                    except subprocess.TimeoutExpired:
+                        elapsed = int(time.monotonic() - started)
+                        print(f"Host-only link check still active after {elapsed // 60}m {elapsed % 60}s", flush=True)
+            except KeyboardInterrupt:
+                process.terminate()
+                process.wait()
+                raise
+            elapsed = int(time.monotonic() - started)
+            print(f"Host-only link check finished in {elapsed // 60}m {elapsed % 60}s (exit={code})", flush=True)
+            if code:
+                raise subprocess.CalledProcessError(code, command)
     except (OSError, KeyError, TypeError, ValueError, json.JSONDecodeError, subprocess.CalledProcessError) as error:
         print(f"{parser.prog}: {error}", file=sys.stderr)
         return 1
