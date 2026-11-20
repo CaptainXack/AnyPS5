@@ -15,7 +15,7 @@ on:
       linux:
         description: Also build and test on Linux
         required: false
-        default: true
+        default: false
         type: boolean
       full:
         description: Run the full Linux and Windows builds (off runs only the relinker builds and tests on Linux, Windows and macOS)
@@ -25,7 +25,7 @@ on:
       select:
         description: Build and run only the tests whose build inputs the pull requests change (push builds of main always run every test)
         required: false
-        default: false
+        default: true
         type: boolean
 
 permissions:
