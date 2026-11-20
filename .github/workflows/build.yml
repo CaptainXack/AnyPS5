@@ -915,9 +915,9 @@ jobs:
             if [ -f ctest.log ]; then
               echo
               echo '#### Final test log lines'
-              echo '\`\`\`text'
+              printf '%s\n' '```text'
               tail -n 35 ctest.log
-              echo '\`\`\`'
+              printf '%s\n' '```'
             fi
           } >> "$GITHUB_STEP_SUMMARY"
       - name: Upload Windows diagnostic logs
