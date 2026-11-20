@@ -188,11 +188,19 @@ def run_ctest(build_dir, indices, output_log):
                         *(["--output-log", str(output_log)] if output_log else [])], check=True)
 
 
+def build_targets(build_dir, targets):
+    ordered = list(dict.fromkeys(targets))
+    for offset in range(0, len(ordered), 60):
+        batch = ordered[offset:offset + 60]
+        print(f"Building targets {offset + 1}-{offset + len(batch)} of {len(ordered)}", flush=True)
+        subprocess.run(["cmake", "--build", str(build_dir), "--parallel", "3", "--target", *batch], check=True)
+
+
 def run(build_dir, selected, targets_by_name, output_log=None, script_tests=None):
     selected_names = set(selected)
     initial_targets = ["libs", *sorted(selected_names, key=str.casefold)]
     print(f"Building {len(initial_targets)} initial targets", flush=True)
-    subprocess.run(["cmake", "--build", str(build_dir), "--parallel", "3", "--target", *initial_targets], check=True)
+    build_targets(build_dir, initial_targets)
 
     scripts = script_test_indices(build_dir, script_tests) if script_tests else []
     script_owners = script_test_owners(build_dir, targets_by_name, script_tests) if script_tests else []
@@ -200,7 +208,7 @@ def run(build_dir, selected, targets_by_name, output_log=None, script_tests=None
     additional = sorted(({owner for owner, _ in resolutions.values()} | set(script_owners)) - selected_names, key=str.casefold)
     if additional:
         print(f"Building {len(additional)} additional test owners", flush=True)
-        subprocess.run(["cmake", "--build", str(build_dir), "--parallel", "3", "--target", *additional], check=True)
+        build_targets(build_dir, additional)
 
     missing = sorted(selected_names - {owner for owner, _ in resolutions.values()})
     if missing:
