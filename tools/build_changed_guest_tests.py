@@ -10,7 +10,7 @@ import tempfile
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import build_mingw_host_only_tests as host_only
 from check_test_registration import testfile_commands
-from select_tests import chunks
+from select_tests import Build, chunks, escape
 
 BROAD_CHANGES = {
     "CMakeLists.txt",
@@ -190,10 +190,22 @@ def run_ctest(build_dir, indices, output_log):
 
 def build_targets(build_dir, targets):
     ordered = list(dict.fromkeys(targets))
-    for offset in range(0, len(ordered), 60):
-        batch = ordered[offset:offset + 60]
-        print(f"Building targets {offset + 1}-{offset + len(batch)} of {len(ordered)}", flush=True)
-        subprocess.run(["cmake", "--build", str(build_dir), "--parallel", "3", "--target", *batch], check=True)
+    if not ordered:
+        return
+    if (Path(build_dir) / "build.ninja").is_file():
+        build = Build(build_dir)
+        with tempfile.TemporaryDirectory(prefix="anyps5-guest-build-", dir=build.path) as directory:
+            manifest = Path(directory) / "selected.ninja"
+            manifest.write_text("include build.ninja\nbuild anyps5_changed_guest_selection: phony "
+                                + " ".join(escape(target) for target in ordered) + "\n", encoding=build.encoding)
+            print(f"Building {len(ordered)} targets in one Ninja invocation", flush=True)
+            subprocess.run([build.program, "-C", build.path, "-f", str(manifest.resolve()),
+                            "-j", "3", "anyps5_changed_guest_selection"], check=True)
+        return
+    groups = (["libs"], [target for target in ordered if target != "libs"]) if "libs" in ordered else (ordered,)
+    for group in groups:
+        for batch in chunks(group):
+            subprocess.run(["cmake", "--build", str(build_dir), "--parallel", "3", "--target", *batch], check=True)
 
 
 def run(build_dir, selected, targets_by_name, output_log=None, script_tests=None):

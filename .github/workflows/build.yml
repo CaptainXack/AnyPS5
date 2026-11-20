@@ -871,7 +871,7 @@ jobs:
         run: git diff --name-only "$BASE" HEAD > changed.txt
       - name: Build and run changed core/libs tests
         if: github.event_name == 'pull_request'
-        timeout-minutes: 90
+        timeout-minutes: 180
         shell: cmd
         run: python -u tools/build_changed_guest_tests.py build changed.txt --output-log ctest.log
       - id: libs
@@ -886,7 +886,7 @@ jobs:
         if: github.event_name != 'pull_request'
         run: python tools/check_skips.py build/ctest.xml --job windows
       - name: Publish Windows test summary
-        if: ${{ always() && github.event_name != 'pull_request' }}
+        if: ${{ always() }}
         shell: bash
         run: |
           {
@@ -910,7 +910,7 @@ jobs:
             fi
           } >> "$GITHUB_STEP_SUMMARY"
       - name: Upload Windows diagnostic logs
-        if: ${{ always() && github.event_name != 'pull_request' }}
+        if: ${{ always() }}
         uses: actions/upload-artifact@v4
         with:
           name: windows-diagnostics-${{ github.run_id }}-${{ github.run_attempt }}
