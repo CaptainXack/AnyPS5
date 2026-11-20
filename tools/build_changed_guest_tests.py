@@ -198,8 +198,6 @@ def run(build_dir, selected, targets_by_name, output_log=None, script_tests=None
     if missing:
         raise ValueError("no ctest registration resolved for: " + ", ".join(missing))
 
-    # Build the libraries and all test executables in one Ninja graph. Previously,
-    # each chunk launched a fresh build, repeatedly traversing shared dependencies.
     targets = ["libs", *sorted(selected_names, key=str.casefold), *additional]
     print(f"Building {len(targets)} targets in one CMake invocation", flush=True)
     subprocess.run(["cmake", "--build", str(build_dir), "--parallel", "3", "--target", *targets], check=True)
