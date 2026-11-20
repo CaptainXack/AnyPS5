@@ -299,6 +299,25 @@ static void CheckWaitingWriterHoldsBackNewReaders() {
     Require(pthread_rwlock_destroy_nid_postfix(&recursive) == 0);
 }
 
+// A read lock on A must not count as a recursive read lock on B when a
+// writer is waiting on B. This guards against thread-global recursion counts.
+static void CheckUnrelatedReadDoesNotBypassWaitingWriter() {
+    PthreadRwlock a = nullptr;
+    PthreadRwlock b = nullptr;
+    Require(pthread_rwlock_rdlock_nid_postfix(&a) == 0);
+    Holder reader{&b, false};
+    Start(reader);
+    WaitingWriter writer{&b};
+    StartWaitingWriter(writer);
+    Require(TryReadUntilRefused(&b) == GUEST_EBUSY);
+    reader.release.store(true);
+    Require(scePthreadJoin(reader.thread, nullptr) == SCE_OK);
+    Require(scePthreadJoin(writer.thread, nullptr) == SCE_OK);
+    Require(pthread_rwlock_unlock_nid_postfix(&a) == 0);
+    Require(pthread_rwlock_destroy_nid_postfix(&a) == 0);
+    Require(pthread_rwlock_destroy_nid_postfix(&b) == 0);
+}
+
 using RelativeLock = int (APS5_VABI *)(PthreadRwlock*, KernelUseconds);
 
 static void ExpectRelativeTimeout(RelativeLock lock, PthreadRwlock* rwlock) {
@@ -550,6 +569,7 @@ int main() {
     CheckAttrProcessSharing();
     CheckAttrType();
     CheckWaitingWriterHoldsBackNewReaders();
+    CheckUnrelatedReadDoesNotBypassWaitingWriter();
     CheckConcurrentFirstWrlockExcludes();
     CheckDeadlinesBeyondTheClockRange();
     CheckRelativeTimeouts();
