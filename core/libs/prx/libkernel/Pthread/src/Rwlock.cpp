@@ -46,8 +46,6 @@ static bool OwnsWrite(const PthreadRwlockPrivate* lock) {
     return lock->_writer.load(std::memory_order_acquire) == std::this_thread::get_id();
 }
 
-// Track recursive read ownership per lock, not merely per thread. A read lock on
-// an unrelated rwlock must not bypass a queued writer on this rwlock.
 static thread_local std::unordered_map<const PthreadRwlockPrivate*, unsigned> readLocksHeld;
 
 static bool ReaderMayEnter(const PthreadRwlockPrivate* lock) {
