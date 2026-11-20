@@ -1,0 +1,145 @@
+name: Windows packages (experimental)
+
+on:
+  push:
+    branches: [local-fixes]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: windows-packages-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  WINLIBS_RELEASE: 15.2.0posix-14.0.0-ucrt-r7
+  WINLIBS_ZIP: winlibs-x86_64-posix-seh-gcc-15.2.0-mingw-w64ucrt-14.0.0-r7.zip
+  WINLIBS_SHA256: cb2fbad6162540cdf5e1facdce08d4dac359e8cf64f7f696a99274291763b815
+
+jobs:
+  relinker:
+    name: Relinker executable and smoke tests
+    runs-on: windows-latest
+    timeout-minutes: 40
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Restore verified WinLibs toolchain
+        id: winlibs
+        uses: actions/cache@v6
+        with:
+          path: C:\winlibs
+          key: ${{ env.WINLIBS_ZIP }}
+      - name: Download verified WinLibs toolchain
+        if: steps.winlibs.outputs.cache-hit != 'true'
+        run: |
+          curl -fsSL --retry 3 -o "$RUNNER_TEMP/winlibs.zip" "https://github.com/brechtsanders/winlibs_mingw/releases/download/$WINLIBS_RELEASE/$WINLIBS_ZIP"
+          echo "$WINLIBS_SHA256  $RUNNER_TEMP/winlibs.zip" | sha256sum -c -
+          7z x "$RUNNER_TEMP/winlibs.zip" -oC:/winlibs > /dev/null
+      - name: Add WinLibs runtime DLLs to PATH
+        run: echo 'C:\winlibs\mingw64\bin' >> "$GITHUB_PATH"
+      - name: Configure relinker and tests
+        shell: cmd
+        run: cmake -S . -B build-relinker -G Ninja -DCMAKE_BUILD_TYPE=Release -DANYPS5_RELINKER_ONLY=ON -DBUILD_TESTING=ON -DCMAKE_C_COMPILER=C:/winlibs/mingw64/bin/gcc.exe -DCMAKE_CXX_COMPILER=C:/winlibs/mingw64/bin/g++.exe
+      - name: Build relinker
+        shell: cmd
+        run: cmake --build build-relinker
+      - name: Run relinker tests
+        shell: cmd
+        run: ctest --test-dir build-relinker --output-on-failure --timeout 120 --no-tests=error
+      - name: Prepare downloadable relinker
+        run: |
+          set -euo pipefail
+          mkdir -p output/relinker
+          cp build-relinker/core/relinker/relinker.exe output/relinker/
+          for name in libgcc_s_seh-1.dll libstdc++-6.dll libwinpthread-1.dll; do
+            cp "C:/winlibs/mingw64/bin/$name" "output/relinker/$name"
+          done
+          cp LICENSE output/relinker/LICENSE
+          git rev-parse HEAD > output/relinker/SOURCE-COMMIT.txt
+          printf 'AnyPS5 relinker-only build. This converts supported inputs; it is not a playable game or a PS5 emulator installation. The patched runtime libraries are not included here.\n' > output/relinker/README.txt
+          test -s output/relinker/relinker.exe
+      - uses: actions/upload-artifact@v7
+        with:
+          name: anyps5-relinker-windows-${{ github.run_number }}
+          path: output/relinker/
+          if-no-files-found: error
+          retention-days: 90
+          compression-level: 0
+
+  full-runtime:
+    name: Full Windows runtime and library package
+    runs-on: windows-latest
+    timeout-minutes: 240
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+          submodules: recursive
+      - name: Use Git for Windows CA bundle
+        run: |
+          for prefix in ucrt64 mingw64; do
+            bundle="C:/Program Files/Git/$prefix/etc/ssl/certs/ca-bundle.crt"
+            if [ -f "$bundle" ]; then
+              echo "SSL_CERT_FILE=$bundle" >> "$GITHUB_ENV"
+              exit 0
+            fi
+          done
+          echo "::error::No Git for Windows CA bundle available"
+          exit 1
+      - name: Restore verified WinLibs toolchain
+        id: winlibs
+        uses: actions/cache@v6
+        with:
+          path: C:\winlibs
+          key: ${{ env.WINLIBS_ZIP }}
+      - name: Download verified WinLibs toolchain
+        if: steps.winlibs.outputs.cache-hit != 'true'
+        run: |
+          curl -fsSL --retry 3 -o "$RUNNER_TEMP/winlibs.zip" "https://github.com/brechtsanders/winlibs_mingw/releases/download/$WINLIBS_RELEASE/$WINLIBS_ZIP"
+          echo "$WINLIBS_SHA256  $RUNNER_TEMP/winlibs.zip" | sha256sum -c -
+          7z x "$RUNNER_TEMP/winlibs.zip" -oC:/winlibs > /dev/null
+      - run: echo 'C:\winlibs\mingw64\bin' >> "$GITHUB_PATH"
+      - uses: hendrikmuhs/ccache-action@v1.2.24
+        with:
+          key: anyps5-windows-package
+          save: true
+      - name: Configure full Windows runtime
+        shell: cmd
+        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF -DCMAKE_C_COMPILER=gcc -DCMAKE_CXX_COMPILER=g++ -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
+      - name: Build relinker and runtime
+        shell: cmd
+        run: cmake --build build
+      - name: Build every patched library
+        shell: cmd
+        run: cmake --build build --target libs
+      - name: Package with upstream release script
+        run: |
+          set -euo pipefail
+          version="v0.0.0-dev-${{ github.run_number }}"
+          python tools/package_release.py --platform windows --build build --output dist --version "$version"
+          test -s "dist/relinker-$version.exe"
+          test -s "dist/prx-windows-$version.zip"
+          cp docs/user/USAGE.md dist/USAGE.md
+          cp LICENSE dist/LICENSE
+          printf 'Fork: %s\nCommit: %s\nBuild: %s\nWindows package is experimental; no GTA 6 gameplay compatibility is claimed.\n' "$GITHUB_REPOSITORY" "$GITHUB_SHA" "$GITHUB_RUN_ID" > dist/BUILD-INFO.txt
+      - uses: actions/upload-artifact@v7
+        with:
+          name: anyps5-full-windows-${{ github.run_number }}
+          path: |
+            dist/relinker-v*.exe
+            dist/prx-windows-v*.zip
+            dist/USAGE.md
+            dist/LICENSE
+            dist/BUILD-INFO.txt
+          if-no-files-found: error
+          retention-days: 90
+          compression-level: 0
