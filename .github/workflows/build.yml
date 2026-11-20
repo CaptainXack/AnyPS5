@@ -869,15 +869,13 @@ jobs:
         env:
           BASE: ${{ needs.eligibility.outputs.sha }}
         run: git diff --name-only "$BASE" HEAD > changed.txt
-      - name: Link changed host-only core/libs test executables
-        if: github.event_name == 'pull_request'
-        timeout-minutes: 60
-        shell: cmd
-        run: python -u tools/build_mingw_host_only_tests.py build changed.txt
+      # The combined test runner selects both host-only and guest core/libs targets.
+      # Building host-only targets separately first duplicates dependency traversal and linking.
       - name: Build and run changed core/libs tests
         if: github.event_name == 'pull_request'
+        timeout-minutes: 90
         shell: cmd
-        run: python tools/build_changed_guest_tests.py build changed.txt --output-log ctest.log
+        run: python -u tools/build_changed_guest_tests.py build changed.txt --output-log ctest.log
       - id: libs
         if: github.event_name != 'pull_request'
         shell: cmd
