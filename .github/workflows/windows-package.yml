@@ -52,6 +52,23 @@ jobs:
       - name: Run relinker tests
         shell: cmd
         run: ctest --test-dir build-relinker --output-on-failure --timeout 120 --no-tests=error
+      - name: End-to-end ELF to Windows executable smoke test
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $env:PATH = "C:\\winlibs\\mingw64\\bin;$env:PATH"
+          $relinker = (Resolve-Path 'build-relinker/core/relinker/relinker.exe').Path
+          New-Item -ItemType Directory -Force -Path output/test-results | Out-Null
+          & python core/relinker/relinker/tests/test_windows_bss.py $relinker *>&1 | Tee-Object -FilePath output/test-results/windows-elf-to-exe.txt
+          if ($LASTEXITCODE -ne 0) { throw "ELF-to-Windows executable integration test failed ($LASTEXITCODE)" }
+      - name: Upload end-to-end test results
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: anyps5-windows-execution-test-${{ github.run_number }}
+          path: output/test-results/
+          if-no-files-found: warn
+          retention-days: 30
       - name: Prepare downloadable relinker
         run: |
           set -euo pipefail
