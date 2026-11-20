@@ -189,18 +189,22 @@ def run_ctest(build_dir, indices, output_log):
 
 
 def run(build_dir, selected, targets_by_name, output_log=None, script_tests=None):
+    selected_names = set(selected)
+    initial_targets = ["libs", *sorted(selected_names, key=str.casefold)]
+    print(f"Building {len(initial_targets)} initial targets", flush=True)
+    subprocess.run(["cmake", "--build", str(build_dir), "--parallel", "3", "--target", *initial_targets], check=True)
+
     scripts = script_test_indices(build_dir, script_tests) if script_tests else []
     script_owners = script_test_owners(build_dir, targets_by_name, script_tests) if script_tests else []
-    selected_names = set(selected)
     resolutions = ctest_resolutions(build_dir, targets_by_name, selected_names) if selected else {}
     additional = sorted(({owner for owner, _ in resolutions.values()} | set(script_owners)) - selected_names, key=str.casefold)
+    if additional:
+        print(f"Building {len(additional)} additional test owners", flush=True)
+        subprocess.run(["cmake", "--build", str(build_dir), "--parallel", "3", "--target", *additional], check=True)
+
     missing = sorted(selected_names - {owner for owner, _ in resolutions.values()})
     if missing:
         raise ValueError("no ctest registration resolved for: " + ", ".join(missing))
-
-    targets = ["libs", *sorted(selected_names, key=str.casefold), *additional]
-    print(f"Building {len(targets)} targets in one CMake invocation", flush=True)
-    subprocess.run(["cmake", "--build", str(build_dir), "--parallel", "3", "--target", *targets], check=True)
     indices = sorted({index for _, index in resolutions.values()} | set(scripts))
     if indices:
         run_ctest(build_dir, indices, output_log)
