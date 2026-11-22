@@ -152,6 +152,59 @@ jobs:
           cp docs/user/USAGE.md dist/USAGE.md
           cp LICENSE dist/LICENSE
           printf 'Fork: %s\nCommit: %s\nBuild: %s\nWindows package is experimental; no GTA 6 gameplay compatibility is claimed.\n' "$GITHUB_REPOSITORY" "$GITHUB_SHA" "$GITHUB_RUN_ID" > dist/BUILD-INFO.txt
+      - name: Verify packaged Windows archive and checksums
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+          from zipfile import ZipFile
+
+          archives = list(Path("dist").glob("prx-windows-v*.zip"))
+          if len(archives) != 1:
+              raise SystemExit(f"Expected one patched library archive, found {len(archives)}")
+
+          expected = {
+              path.name + ".prx"
+              for path in Path("core/libs/prx").iterdir()
+              if path.is_dir() and not path.name.startswith(".")
+          }
+          with ZipFile(archives[0]) as archive:
+              entries = archive.namelist()
+              if len(entries) != len(set(entries)):
+                  raise SystemExit("Duplicate archive entries detected")
+              damaged = archive.testzip()
+              if damaged:
+                  raise SystemExit(f"Corrupt archive entry: {damaged}")
+              actual = {
+                  Path(name).name
+                  for name in entries
+                  if name.startswith("libs/")
+                  and name.count("/") == 1
+                  and name.endswith(".prx")
+              }
+              if actual != expected:
+                  raise SystemExit(
+                      f"Missing libraries: {sorted(expected - actual)}; "
+                      f"Unexpected libraries: {sorted(actual - expected)}"
+                  )
+              required = {
+                  "libs/libgcc_s_seh-1.dll",
+                  "libs/libstdc++-6.dll",
+                  "libs/libwinpthread-1.dll",
+              }
+              missing = required - set(entries)
+              if missing:
+                  raise SystemExit(f"Missing Windows runtime DLLs: {sorted(missing)}")
+              for item in archive.infolist():
+                  if item.filename in required or item.filename.endswith(".prx"):
+                      if item.file_size == 0:
+                          raise SystemExit(f"Empty archive entry: {item.filename}")
+          PY
+          (
+            cd dist
+            sha256sum relinker-v*.exe prx-windows-v*.zip USAGE.md LICENSE BUILD-INFO.txt > SHA256SUMS.txt
+            sha256sum -c SHA256SUMS.txt
+          )
       - uses: actions/upload-artifact@v7
         with:
           name: anyps5-full-windows-${{ github.run_number }}
@@ -161,6 +214,7 @@ jobs:
             dist/USAGE.md
             dist/LICENSE
             dist/BUILD-INFO.txt
+            dist/SHA256SUMS.txt
           if-no-files-found: error
           retention-days: 90
           compression-level: 0
